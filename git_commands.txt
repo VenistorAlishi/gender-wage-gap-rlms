@@ -13,8 +13,8 @@ git commit -m "Initial commit: Проект по эконометрике - ис
 # 4. Переименование ветки в main (если нужно)
 git branch -M main
 
-# 5. Добавление remote репозитория (ЗАМЕНИТЕ YOUR_USERNAME на ваш GitHub username)
-git remote add origin https://github.com/YOUR_USERNAME/gender-wage-gap-rlms.git
+# 5. Добавление remote репозитория
+git remote add origin https://github.com/VenistorAlishi/gender-wage-gap-rlms.git
 
 # 6. Отправка кода на GitHub
 git push -u origin main
