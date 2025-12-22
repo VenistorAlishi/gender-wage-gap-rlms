@@ -1,0 +1,24 @@
+# Настройки для Git
+# Обработка файлов с кириллицей
+
+*.md linguist-language=Markdown
+*.ipynb linguist-language=Python
+*.do linguist-language=Stata
+
+# Нормализация окончаний строк
+* text=auto
+
+# Файлы данных (бинарные)
+*.dta binary
+*.sav binary
+*.pdf binary
+*.png binary
+*.jpg binary
+
+# Исключение из статистики GitHub
+data/* linguist-vendored
+results/* linguist-generated
+figures/* linguist-generated
+
+
+
