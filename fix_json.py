@@ -75,3 +75,4 @@ print("\nТаблица:")
 print(comparison_df.to_string(index=False))
 
 
+
