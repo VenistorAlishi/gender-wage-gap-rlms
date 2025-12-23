@@ -50,6 +50,7 @@ results/*.txt
 results/*.csv
 results/*.xlsx
 !results/.gitkeep
+!results/comparison_table.csv
 
 # Графики (можно загружать, но лучше исключить)
 figures/*.png
@@ -57,6 +58,7 @@ figures/*.jpg
 figures/*.pdf
 figures/*.svg
 !figures/.gitkeep
+!figures/residuals_diagnostics.png
 
 # Временные файлы
 *.tmp

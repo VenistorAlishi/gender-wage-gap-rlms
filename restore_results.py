@@ -139,3 +139,4 @@ print("[SUCCESS] Результаты восстановлены!")
 print("="*70)
 print("\nСледующий шаг: python fill_report_from_results.py")
 
+

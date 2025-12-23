@@ -74,3 +74,4 @@ print("Таблица сравнения создана!")
 print("\nТаблица:")
 print(comparison_df.to_string(index=False))
 
+
