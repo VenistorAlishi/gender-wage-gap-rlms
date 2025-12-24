@@ -62,8 +62,23 @@ print("[1/8] Загрузка данных...")
 try:
     data_file = 'data/RLMS_IND_1994_2024_v3_rus.dta'
     print(f"Загрузка из {data_file}...")
-    df_full = pd.read_stata(data_file, convert_categoricals=False)
-    print(f"Данные загружены. Размер: {df_full.shape}")
+    
+    # Пробуем использовать pyreadstat для чтения только нужных колонок
+    try:
+        import pyreadstat
+        needed_cols = ['year', 'region', 'h5', 'h4_1_y', 'birth_year', 'byear', 
+                       'j13.2', 'j13_2', 'j132', 'j13.3', 'j13_3', 'j133',
+                       'j1', 'j7', 'marst', 'age', 'educ']
+        print("Используем pyreadstat для чтения только нужных колонок...")
+        df_full, meta = pyreadstat.read_dta(data_file, usecols=needed_cols)
+        print(f"Данные загружены. Размер: {df_full.shape}")
+    except (ImportError, Exception) as e:
+        print(f"pyreadstat недоступен или ошибка: {e}")
+        print("Используем стандартный метод загрузки...")
+        # Загружаем все данные (может быть медленно)
+        df_full = pd.read_stata(data_file, convert_categoricals=False)
+        print(f"Данные загружены. Размер: {df_full.shape}")
+    
     results_summary['data_info']['full_size'] = list(df_full.shape)
     
     # Проверка переменных
@@ -77,6 +92,8 @@ try:
     
 except Exception as e:
     print(f"ОШИБКА при загрузке данных: {e}")
+    import traceback
+    traceback.print_exc()
     sys.exit(1)
 
 # ============================================================================
@@ -122,7 +139,26 @@ try:
     
     if wage_var:
         df = df[df[wage_var] > 0].copy()
-        df['ln_wage'] = np.log(df[wage_var])
+        
+        # ДЕФЛЯЦИЯ: Приведение зарплат к ценам 2010 года
+        # ИПЦ с базой 2010=100: 2010 = 100, 2020 ≈ 177 (по данным Росстата)
+        # Накопленная инфляция за 2010-2020: ~77%
+        deflator_2010 = 100.0
+        deflator_2020 = 177.0  # ИПЦ 2020 к базе 2010
+        
+        # Создаем дефлятор для каждого года
+        df['deflator'] = df['year'].map({2010: deflator_2010, 2020: deflator_2020})
+        
+        # Приводим зарплаты к ценам 2010 года
+        df['wage_real_2010'] = df[wage_var] * (deflator_2010 / df['deflator'])
+        
+        # Используем дефлированные зарплаты
+        df['ln_wage'] = np.log(df['wage_real_2010'])
+        
+        print(f"Дефляция выполнена:")
+        print(f"  Базовый год: 2010 (дефлятор = {deflator_2010})")
+        print(f"  2020 год: дефлятор = {deflator_2020}")
+        print(f"  Зарплаты приведены к ценам 2010 года")
     
     # Возраст
     if 'age' in df.columns:
@@ -304,19 +340,23 @@ for i, (name, model_obj) in enumerate([('model1', model1), ('model2', model2),
         pass
 
 # ============================================================================
-# ШАГ 7: ДИАГНОСТИКА МОДЕЛИ 4
+# ШАГ 7: ДИАГНОСТИКА МОДЕЛИ 5 (лучшая модель)
 # ============================================================================
-print("\n[5/8] Проверка предпосылок Гаусса-Маркова (Модель 4)...")
+print("\n[5/8] Проверка предпосылок Гаусса-Маркова (Модель 5 - лучшая)...")
 
 diagnostics = {}
 
+# Используем Модель 5 (лучшая модель) для диагностики
+model_for_diagnostics = model5
+X_for_diagnostics = X5
+
 # Гетероскедастичность
 try:
-    bp_test = het_breuschpagan(model4.resid, X4)
+    bp_test = het_breuschpagan(model_for_diagnostics.resid, X_for_diagnostics)
     diagnostics['breusch_pagan'] = {
         'lm_stat': float(bp_test[0]),
         'pvalue': float(bp_test[1]),
-        'heteroscedastic': bp_test[1] < 0.05
+        'heteroscedastic': bool(bp_test[1] < 0.05)
     }
     print(f"Тест Бройша-Пагана: LM={bp_test[0]:.4f}, p={bp_test[1]:.4f}")
 except:
@@ -325,8 +365,8 @@ except:
 # VIF
 try:
     vif_data = pd.DataFrame()
-    vif_data['Variable'] = X4.columns
-    vif_data['VIF'] = [variance_inflation_factor(X4.values, i) for i in range(X4.shape[1])]
+    vif_data['Variable'] = X_for_diagnostics.columns
+    vif_data['VIF'] = [variance_inflation_factor(X_for_diagnostics.values, i) for i in range(X_for_diagnostics.shape[1])]
     high_vif = vif_data[vif_data['VIF'] > 10]
     diagnostics['vif'] = {
         'max_vif': float(vif_data['VIF'].max()),
@@ -338,15 +378,41 @@ except:
 
 # Нормальность остатков
 try:
-    jb_stat, jb_p = stats.jarque_bera(model4.resid)
+    jb_stat, jb_p = stats.jarque_bera(model_for_diagnostics.resid)
     diagnostics['normality'] = {
         'jarque_bera_stat': float(jb_stat),
         'jarque_bera_pvalue': float(jb_p),
-        'normal': jb_p >= 0.05
+        'normal': bool(jb_p >= 0.05)
     }
     print(f"Тест Жака-Бера: stat={jb_stat:.4f}, p={jb_p:.4f}")
 except:
     pass
+
+# Тест RESET (Ramsey RESET test) на пропущенные переменные
+# Проверяет правильность спецификации модели
+try:
+    reset_test = linear_reset(model_for_diagnostics, power=2, test_type='fitted')
+    # linear_reset возвращает ContrastResults объект с атрибутами statistic и pvalue
+    # statistic - это F-статистика для RESET теста
+    f_stat = float(reset_test.statistic)
+    p_value = float(reset_test.pvalue)
+    diagnostics['reset'] = {
+        'f_stat': f_stat,
+        'pvalue': p_value,
+        'omitted_vars': bool(p_value < 0.05)
+    }
+    print(f"Тест RESET (Ramsey): F={f_stat:.4f}, p={p_value:.4f}")
+    if p_value < 0.05:
+        print("  ВНИМАНИЕ: Тест указывает на возможные пропущенные переменные или неправильную функциональную форму!")
+    else:
+        print("  Спецификация модели в целом корректна")
+except Exception as e:
+    print(f"Ошибка при выполнении теста RESET: {e}")
+    import traceback
+    traceback.print_exc()
+    diagnostics['reset'] = {
+        'error': str(e)
+    }
 
 results_summary['diagnostics'] = diagnostics
 
@@ -356,10 +422,10 @@ results_summary['diagnostics'] = diagnostics
 print("\n[6/8] Создание графиков...")
 
 try:
-    # График остатков
+    # График остатков (используем лучшую модель - модель 5)
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    residuals = model4.resid
-    fitted = model4.fittedvalues
+    residuals = model5.resid
+    fitted = model5.fittedvalues
     
     axes[0, 0].scatter(fitted, residuals, alpha=0.5, s=10)
     axes[0, 0].axhline(y=0, color='r', linestyle='--')
@@ -478,6 +544,9 @@ print("  - results/analysis_summary.json")
 print("  - results/comparison_table.csv")
 print("  - results/model*_summary.txt")
 print("  - figures/residuals_diagnostics.png")
+
+
+
 
 
 
